@@ -8,6 +8,8 @@ dependencies = [
     "chainlit>=2.9.6",
     "ipykernel>=7.2.0",
     "langchain>=1.2.10",
+    "langchain-community>=0.4.1",
     "langchain-groq>=1.1.2",
+    "psycopg>=3.3.2",
     "python-dotenv>=1.2.1",
 ]
