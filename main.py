@@ -2,7 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain.messages import SystemMessage
+from langchain.messages import HumanMessage, SystemMessage
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
 
@@ -77,10 +77,4 @@ if __name__ == "__main__":
         if question in ["quit", "q"]:
             break
         else:
-            for event in analyzer.agent.astream_events(
-                {"input": question},
-                version="v2",
-                include_names=["model"],
-                include_types=["on_chat_model_stream"],
-            ):
-                print(event)
+            print(analyzer.agent.invoke(HumanMessage(question))["messages"][-1].content)
