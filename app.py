@@ -23,8 +23,18 @@ async def on_message(message: cl.Message):
     ):
         event_type = event["event"]
         if event_type == "on_chat_model_stream":
+            metadata = event.get("metadata", {})
+            node = metadata.get("langgraph_node")
             chunk = event["data"]["chunk"]
-            if hasattr(chunk, "content") and chunk.content:
+
+            # Only stream from the 'model' node (not 'tools')
+            # and only when it's NOT building a tool call
+            if (
+                node == "model"
+                and hasattr(chunk, "content")
+                and chunk.content
+                and not chunk.tool_call_chunks
+            ):
                 await msg.stream_token(chunk.content)
 
     await msg.send()
