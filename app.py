@@ -1,20 +1,32 @@
 from main import TangarinDBAnalyzer
-from langchain.messages import HumanMessage
+from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
+from langchain_core.messages import HumanMessage
 import chainlit as cl
+import os
+
+
+@cl.data_layer
+def get_data_layer():
+    return SQLAlchemyDataLayer(conninfo=os.getenv("DATABASE_URL"))
+
+
+@cl.password_auth_callback
+def auth_callback(username: str, password: str):
+    # Replace this with your own logic — DB lookup, env vars, etc.
+    if username == "admin" and password == "securepassword":
+        return cl.User(identifier="admin", metadata={"role": "admin"})
+    return None  # Returning None = login rejected
 
 
 @cl.on_chat_start
 async def on_chat_start():
     analyzer = TangarinDBAnalyzer()
-    agent = analyzer.agent
-
-    cl.user_session.set("agent", agent)
+    cl.user_session.set("agent", analyzer.agent)
 
 
 @cl.on_message
 async def on_message(message: cl.Message):
     agent = cl.user_session.get("agent")
-
     msg = cl.Message(content="")
 
     async for event in agent.astream_events(
@@ -27,8 +39,6 @@ async def on_message(message: cl.Message):
             node = metadata.get("langgraph_node")
             chunk = event["data"]["chunk"]
 
-            # Only stream from the 'model' node (not 'tools')
-            # and only when it's NOT building a tool call
             if (
                 node == "model"
                 and hasattr(chunk, "content")

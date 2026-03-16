@@ -30,6 +30,8 @@ Built using:
 - 📡 Streaming responses in UI
 - 🛠 Tool-based agent architecture
 - 🗄 PostgreSQL support
+- 🔐 Password-based authentication
+- 💾 Persistent chat history via SQLAlchemy data layer
 
 ---
 
@@ -52,13 +54,14 @@ Built using:
 
 ## 🧠 How It Works
 
-1. User asks a question in plain English.
-2. Agent inspects available tables.
-3. Agent checks schema of relevant tables.
-4. Agent generates a syntactically correct SQL query.
-5. Query is validated.
-6. Query is executed.
-7. Final answer is streamed back to the user.
+1. User logs in via the Chainlit login screen.
+2. User asks a question in plain English.
+3. Agent inspects available tables.
+4. Agent checks schema of relevant tables.
+5. Agent generates a syntactically correct SQL query.
+6. Query is validated.
+7. Query is executed.
+8. Final answer is streamed back to the user.
 
 The agent is strictly instructed to:
 
@@ -106,6 +109,90 @@ DB_PASSWORD=your_db_password
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=your_database
+
+# SQLAlchemy async connection string for Chainlit data layer
+DATABASE_URL=postgresql+asyncpg://your_db_user:your_db_password@localhost:5432/your_database
+
+# Secret used to sign Chainlit auth tokens — generate with: chainlit create-secret
+CHAINLIT_AUTH_SECRET=your_generated_secret
+```
+
+---
+
+### 4️⃣ Set Up the Chainlit Data Layer Schema
+
+Run the following SQL against your PostgreSQL database to create the required tables for Chainlit's persistence layer (chat history, users, feedback):
+
+```sql
+CREATE TABLE users (
+    "id" UUID PRIMARY KEY,
+    "identifier" TEXT NOT NULL UNIQUE,
+    "metadata" JSONB NOT NULL,
+    "createdAt" TEXT
+);
+
+CREATE TABLE IF NOT EXISTS threads (
+    "id" UUID PRIMARY KEY,
+    "createdAt" TEXT,
+    "name" TEXT,
+    "userId" UUID,
+    "userIdentifier" TEXT,
+    "tags" TEXT[],
+    "metadata" JSONB,
+    FOREIGN KEY ("userId") REFERENCES users("id") ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS steps (
+    "id" UUID PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "threadId" UUID NOT NULL,
+    "parentId" UUID,
+    "streaming" BOOLEAN NOT NULL,
+    "waitForAnswer" BOOLEAN,
+    "isError" BOOLEAN,
+    "metadata" JSONB,
+    "tags" TEXT[],
+    "input" TEXT,
+    "output" TEXT,
+    "createdAt" TEXT,
+    "command" TEXT,
+    "start" TEXT,
+    "end" TEXT,
+    "generation" JSONB,
+    "showInput" TEXT,
+    "language" TEXT,
+    "indent" INT,
+    "defaultOpen" BOOLEAN,
+    FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS elements (
+    "id" UUID PRIMARY KEY,
+    "threadId" UUID,
+    "type" TEXT,
+    "url" TEXT,
+    "chainlitKey" TEXT,
+    "name" TEXT NOT NULL,
+    "display" TEXT,
+    "objectKey" TEXT,
+    "size" TEXT,
+    "page" INT,
+    "language" TEXT,
+    "forId" UUID,
+    "mime" TEXT,
+    "props" JSONB,
+    FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS feedbacks (
+    "id" UUID PRIMARY KEY,
+    "forId" UUID NOT NULL,
+    "threadId" UUID NOT NULL,
+    "value" INT NOT NULL,
+    "comment" TEXT,
+    FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
+);
 ```
 
 ---
@@ -124,6 +211,8 @@ Then open:
 http://localhost:8000
 ```
 
+You will be prompted with a login screen. Use the admin credentials configured in `app.py`.
+
 ---
 
 ### Run CLI Mode (Optional)
@@ -139,6 +228,33 @@ Ask: Show top 5 customers by revenue
 ```
 
 Type `quit` or `q` to exit.
+
+---
+
+## 🔐 Authentication
+
+Tangarin uses **Chainlit's built-in password authentication**.
+
+### How it works
+
+- A login screen is shown before users can access the chat.
+- Credentials are validated inside the `@cl.password_auth_callback` in `app.py`.
+- On successful login, Chainlit issues a signed JWT using `CHAINLIT_AUTH_SECRET`.
+- Chat history is persisted per user via the SQLAlchemy data layer.
+
+### Generating the auth secret
+
+```bash
+chainlit create-secret
+```
+
+Copy the output into your `.env` as `CHAINLIT_AUTH_SECRET`.
+
+> ⚠️ If you change `CHAINLIT_AUTH_SECRET`, all existing sessions are invalidated and users will need to log in again.
+
+### Default credentials
+
+The default admin credentials are hardcoded in `app.py` for development. **Change these before deploying to any shared or production environment.**
 
 ---
 
@@ -206,10 +322,10 @@ You can ask:
 
 ## 🔧 Customization Ideas
 
+- Add self-service user registration
 - Add memory for conversational continuity
 - Add role-based DB access
 - Deploy via Docker
-- Add authentication layer
 - Add multi-database support
 
 ---
