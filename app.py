@@ -12,10 +12,9 @@ def get_data_layer():
 
 @cl.password_auth_callback
 def auth_callback(username: str, password: str):
-    # Replace this with your own logic — DB lookup, env vars, etc.
-    if username == "admin" and password == "securepassword":
+    if username == "admin" and password == os.getenv("ADMIN_PASSWORD"):
         return cl.User(identifier="admin", metadata={"role": "admin"})
-    return None  # Returning None = login rejected
+    return None
 
 
 @cl.on_chat_start
@@ -24,13 +23,25 @@ async def on_chat_start():
     cl.user_session.set("agent", analyzer.agent)
 
 
+@cl.on_chat_resume
+async def on_chat_resume(thread):
+    analyzer = TangarinDBAnalyzer()
+    cl.user_session.set("agent", analyzer.agent)
+
+
 @cl.on_message
 async def on_message(message: cl.Message):
     agent = cl.user_session.get("agent")
+
+    # ✅ Use Chainlit's thread ID so each conversation has separate memory
+    thread_id = cl.context.session.thread_id
+    config = {"configurable": {"thread_id": thread_id}}
+
     msg = cl.Message(content="")
 
     async for event in agent.astream_events(
         {"messages": [HumanMessage(message.content)]},
+        config=config,  # ✅
         version="v2",
     ):
         event_type = event["event"]

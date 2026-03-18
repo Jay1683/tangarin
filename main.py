@@ -5,6 +5,7 @@ from langchain.agents import create_agent
 from langchain.messages import HumanMessage, SystemMessage
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
+from langgraph.checkpoint.memory import MemorySaver
 
 from load_llm import model
 
@@ -23,16 +24,8 @@ class TangarinDBAnalyzer:
             f"postgresql+psycopg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         )
 
-        # print(f"Dialect: {db.dialect}")
-        # print(f"Available tables: {db.get_usable_table_names()}")
-        # print(f'Sample output: {db.run("SELECT * FROM t_shirts LIMIT 5;")}')
-
         self.toolkit = SQLDatabaseToolkit(db=self.db, llm=model)
-
         self.tools = self.toolkit.get_tools()
-
-        # for tool in tools:
-        #     print(f"{tool.name}: {tool.description}\n")
 
         self.system_prompt = SystemMessage(
             """
@@ -62,19 +55,28 @@ class TangarinDBAnalyzer:
             )
         )
 
+        # MemorySaver keeps conversation history in-memory per thread
+        self.checkpointer = MemorySaver()
+
         self.agent = create_agent(
             model=model,
             tools=self.tools,
             system_prompt=self.system_prompt,
+            checkpointer=self.checkpointer,  # attach checkpointer
         )
 
 
 if __name__ == "__main__":
     analyzer = TangarinDBAnalyzer()
+    thread_id = "cli-session"  # fixed ID for CLI mode
 
     while True:
         question = input("Ask: ")
         if question in ["quit", "q"]:
             break
         else:
-            print(analyzer.agent.invoke(HumanMessage(question))["messages"][-1].content)
+            result = analyzer.agent.invoke(
+                {"messages": [HumanMessage(question)]},
+                config={"configurable": {"thread_id": thread_id}},
+            )
+            print(result["messages"][-1].content)
