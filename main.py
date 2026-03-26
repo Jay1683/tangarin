@@ -5,6 +5,7 @@ from langchain.agents import create_agent
 from langchain.messages import HumanMessage, SystemMessage
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
+from langchain_core.tools.retriever import create_retriever_tool
 from langgraph.checkpoint.memory import MemorySaver
 
 from load_llm import model
@@ -19,7 +20,7 @@ DB_NAME = os.getenv("DB_NAME")
 
 
 class TangarinDBAnalyzer:
-    def __init__(self):
+    def __init__(self, vector_store=None):
         self.db = SQLDatabase.from_uri(
             f"postgresql+psycopg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         )
@@ -27,48 +28,61 @@ class TangarinDBAnalyzer:
         self.toolkit = SQLDatabaseToolkit(db=self.db, llm=model)
         self.tools = self.toolkit.get_tools()
 
+        # ✅ If a vector store is provided, add a retriever tool
+        if vector_store is not None:
+            retriever = vector_store.as_retriever(search_kwargs={"k": 5})
+            retriever_tool = create_retriever_tool(
+                retriever=retriever,
+                name="search_uploaded_file",
+                description=(
+                    "Use this tool to search and retrieve information from the "
+                    "user's uploaded CSV or Excel file. Use this when the question "
+                    "is about the uploaded file rather than the database."
+                ),
+            )
+            self.tools.append(retriever_tool)
+
         self.system_prompt = SystemMessage(
             """
-        You are an agent designed to interact with a SQL database.
-        Given an input question, create a syntactically correct {dialect} query to run,
-        then look at the results of the query and return the answer. Unless the user
-        specifies a specific number of examples they wish to obtain, always limit your
-        query to at most {top_k} results.
+        You are an agent designed to interact with a SQL database and optionally
+        with uploaded data files (CSV, Excel).
 
-        You can order the results by a relevant column to return the most interesting
-        examples in the database. Never query for all the columns from a specific table,
-        only ask for the relevant columns given the question.
+        Given an input question, decide whether to query the SQL database, search
+        the uploaded file, or both.
 
-        You MUST double check your query before executing it. If you get an error while
-        executing a query, rewrite the query and try again.
+        When querying SQL:
+        - Create a syntactically correct {dialect} query
+        - Always limit results to at most {top_k} unless specified
+        - Never query all columns — only relevant ones
+        - Double check your query before executing
+        - DO NOT use DML statements (INSERT, UPDATE, DELETE, DROP)
+        - Always inspect available tables first
 
-        DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the
-        database.
+        When using the uploaded file:
+        - Use the search_uploaded_file tool to retrieve relevant content
+        - Summarize and present findings clearly
 
-        To start you should ALWAYS look at the tables in the database to see what you
-        can query. Do NOT skip this step.
-
-        Then you should query the schema of the most relevant tables.
+        If the question involves both the database and the uploaded file, use both
+        tools and synthesize the results.
         """.format(
                 dialect=self.db.dialect,
                 top_k=5,
             )
         )
 
-        # MemorySaver keeps conversation history in-memory per thread
         self.checkpointer = MemorySaver()
 
         self.agent = create_agent(
             model=model,
             tools=self.tools,
             system_prompt=self.system_prompt,
-            checkpointer=self.checkpointer,  # attach checkpointer
+            checkpointer=self.checkpointer,
         )
 
 
 if __name__ == "__main__":
     analyzer = TangarinDBAnalyzer()
-    thread_id = "cli-session"  # fixed ID for CLI mode
+    thread_id = "cli-session"
 
     while True:
         question = input("Ask: ")
