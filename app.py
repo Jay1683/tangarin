@@ -1,5 +1,5 @@
 from main import TangarinDBAnalyzer
-from file_handler import process_csv_excel, load_faiss, get_thread_dir
+from file_handler import process_csv_excel, process_pdf, load_faiss, get_thread_dir
 from chainlit.data import get_data_layer
 from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -73,7 +73,6 @@ async def on_message(message: cl.Message):
                 ext = Path(element.name).suffix.lower()
 
                 if ext in [".csv", ".xlsx", ".xls"]:
-                    # Save file to uploads/<thread_id>/
                     thread_dir = get_thread_dir(thread_id)
                     dest_path = thread_dir / element.name
                     shutil.copy(element.path, str(dest_path))
@@ -82,7 +81,6 @@ async def on_message(message: cl.Message):
                         content=f"📂 Processing `{element.name}`..."
                     ).send()
 
-                    # Build vector store and reinitialize agent with it
                     vector_store = await process_csv_excel(str(dest_path), thread_id)
                     analyzer = TangarinDBAnalyzer(vector_store=vector_store)
                     cl.user_session.set("agent", analyzer.agent)
@@ -91,12 +89,30 @@ async def on_message(message: cl.Message):
                     await cl.Message(
                         content=f"✅ `{element.name}` is ready. You can now ask questions about it."
                     ).send()
-                else:
+
+                elif ext == ".pdf":  # ✅ new
+                    thread_dir = get_thread_dir(thread_id)
+                    dest_path = thread_dir / element.name
+                    shutil.copy(element.path, str(dest_path))
+
                     await cl.Message(
-                        content=f"⚠️ `{element.name}` is not supported in Phase 1. CSV and Excel only for now."
+                        content=f"📂 Processing `{element.name}`..."
                     ).send()
 
-        # If the message was only a file upload with no text, stop here
+                    vector_store = await process_pdf(str(dest_path), thread_id)
+                    analyzer = TangarinDBAnalyzer(vector_store=vector_store)
+                    cl.user_session.set("agent", analyzer.agent)
+                    agent = analyzer.agent
+
+                    await cl.Message(
+                        content=f"✅ `{element.name}` is ready. You can now ask questions about it."
+                    ).send()
+
+                else:
+                    await cl.Message(
+                        content=f"⚠️ `{element.name}` is not supported yet. Images are coming in Phase 3."
+                    ).send()
+
         if not message.content.strip():
             return
 
